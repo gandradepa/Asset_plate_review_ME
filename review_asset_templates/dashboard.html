@@ -23,6 +23,7 @@
 
         .filters-bar .form-select { min-width: 220px; }
         .filters-bar .badge { font-weight: 500; }
+        td.approved-cell { cursor: pointer; }
     </style>
 </head>
 <body class="container-fluid py-4">
@@ -50,6 +51,7 @@
                 ❌ Missed Photo Only <span class="badge bg-light text-dark" style="min-width: 40px;">{{ count_missed }}</span>
             </a>
         </div>
+
         <div class="col-md-auto ms-auto">
             <div class="d-flex gap-2">
                 <div>
@@ -59,9 +61,11 @@
                     </select>
                 </div>
                 <div>
-                    <label for="filter-type" class="form-label mb-1 small text-muted">Filter by Type</label>
-                    <select id="filter-type" class="form-select form-select-sm">
-                        <option value="">All Types</option>
+                    <label for="filter-approved" class="form-label mb-1 small text-muted">Filter by Approved</label>
+                    <select id="filter-approved" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        <option value="True">Approved Only</option>
+                        <option value="False">Not Approved Only</option>
                     </select>
                 </div>
             </div>
@@ -80,6 +84,10 @@
                 <th class="text-center">Year</th>
                 <th class="text-start">UBC Tag</th>
                 <th class="text-start">Technical Safety BC</th>
+                <th class="text-start">Asset Group</th>
+                <th class="text-start">Attribute</th>
+                <th class="text-start">Description</th>
+                <th class="text-center">Approved</th> <!-- NEW -->
                 <th class="text-center">Flagged</th>
                 <th class="text-center">Modified</th>
                 <th class="text-center">Missed Photo</th>
@@ -103,6 +111,18 @@
                 <td>{{ item.Year }}</td>
                 <td class="text-start">{{ item['UBC Tag'] }}</td>
                 <td class="text-start">{{ item['Technical Safety BC'] }}</td>
+                <td class="text-start">{{ item['Asset Group'] }}</td>
+                <td class="text-start">{{ item['Attribute'] }}</td>
+                <td class="text-start">{{ item['Description'] }}</td>
+
+                <!-- Approved cell: display icon, carry searchable value in data-search -->
+                {% set approved_bool = 'True' if item['Approved'] == 'True' else 'False' %}
+                <td class="approved-cell"
+                    data-docid="{{ item.doc_id }}"
+                    data-search="{{ approved_bool }}">
+                    {% if item['Approved'] == 'True' %}✅{% else %}{% endif %}
+                </td>
+
                 <td>{% if item.Flagged == 'true' %}🚩{% else %}&mdash;{% endif %}</td>
                 <td>{% if item.Modified %}✏️{% else %}&mdash;{% endif %}</td>
                 <td>
@@ -134,90 +154,167 @@
         © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
     </footer>
 
-    <!-- jQuery, Bootstrap (tooltips), DataTables -->
+    <!-- jQuery, Bootstrap, DataTables -->
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
     <script>
-        // Activate Bootstrap tooltips
-        document.addEventListener('DOMContentLoaded', function () {
-          var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-          tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) })
-        });
+      // Remember dashboard query string for sticky quick-filters across Review
+      try { localStorage.setItem('dashboardQuery', window.location.search || ''); } catch (e) {}
 
-        $(document).ready(function () {
-            var table = $('#assetTable').DataTable({
-                pageLength: 15,
-                order: [],
-                columnDefs: [
-                    { orderable: true, targets: [0, 1, 2, 4, 6] },
-                    { orderable: false, targets: "_all" }
-                ]
-            });
+      // Tooltips
+      document.addEventListener('DOMContentLoaded', function () {
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        tooltipTriggerList.map(function (el) { return new bootstrap.Tooltip(el) })
+      });
 
-            // Type badge coloring
-            function applyTypeBadges() {
-                $('#assetTable span.type-badge').each(function () {
-                    var t = ($(this).data('type') || '').toString().trim().toUpperCase();
-                    $(this).removeClass(function (idx, cn) {
-                        return (cn.match(/(^|\s)type-\S+/g) || []).join(' ');
-                    });
-                    var cls = 'type-OTHER';
-                    if (t === 'ME') cls = 'type-ME';
-                    else if (t === 'EE') cls = 'type-EE';
-                    else if (t === 'EL') cls = 'type-EL';
-                    else if (t === 'PL') cls = 'type-PL';
-                    else if (t === 'HV') cls = 'type-HV';
-                    $(this).addClass(cls);
-                });
-            }
-            applyTypeBadges();
-            table.on('draw', function () {
-                applyTypeBadges();
-            });
+      $(document).ready(function () {
+          // Column indexes (0-based)
+          var colQR = 0, colBuilding = 1, colType = 2, colModel = 4, colYear = 6,
+              colAssetGroup = 9, colAttribute = 10, colDescription = 11, colApproved = 12;
 
-            // Quick filter dropdowns
-            var buildingCol = 1;
-            var typeCol = 2;
+          // DataTable with stateSave
+          var table = $('#assetTable').DataTable({
+              pageLength: 15,
+              order: [],
+              stateSave: true,
+              stateDuration: -1,
+              columnDefs: [
+                  // Orderable: QR, Building, Type, Model, Year, Asset Group, Attribute, Description
+                  { orderable: true, targets: [colQR, colBuilding, colType, colModel, colYear, colAssetGroup, colAttribute, colDescription] },
+                  // Make "Approved" not orderable if you prefer; change to true to enable
+                  { orderable: false, targets: [colApproved] }
+              ],
+              // Use 'data-search' attribute for filtering the Approved column
+              createdRow: function (row, data, dataIndex) {
+                  var $approvedCell = $('td', row).eq(colApproved);
+                  var val = $approvedCell.attr('data-search');
+                  if (val) {
+                      $approvedCell.attr('data-search', val);
+                  }
+              }
+          });
 
-            function populateSelectFromColumn(selectId, colIndex) {
-                var select = $(selectId);
-                select.find('option:not(:first)').remove();
-                var uniques = {};
-                table.column(colIndex, { search: 'applied' }).data().each(function (val) {
-                    if (colIndex === typeCol) {
-                        var div = document.createElement('div');
-                        div.innerHTML = val;
-                        val = $(div).text().trim();
-                    } else {
-                        val = (val || '').toString().trim();
-                    }
-                    if (val) uniques[val] = true;
-                });
-                Object.keys(uniques).sort().forEach(function (v) {
-                    select.append(new Option(v, v));
-                });
-            }
+          // Type badge coloring
+          function applyTypeBadges() {
+              $('#assetTable span.type-badge').each(function () {
+                  var t = ($(this).data('type') || '').toString().trim().toUpperCase();
+                  $(this).removeClass(function (idx, cn) {
+                      return (cn.match(/(^|\s)type-\S+/g) || []).join(' ');
+                  });
+                  var cls = 'type-OTHER';
+                  if (t === 'ME') cls = 'type-ME';
+                  else if (t === 'EE') cls = 'type-EE';
+                  else if (t === 'EL') cls = 'type-EL';
+                  else if (t === 'PL') cls = 'type-PL';
+                  else if (t === 'HV') cls = 'type-HV';
+                  $(this).addClass(cls);
+              });
+          }
+          applyTypeBadges();
+          table.on('draw', applyTypeBadges);
 
-            populateSelectFromColumn('#filter-building', buildingCol);
-            populateSelectFromColumn('#filter-type', typeCol);
+          // Populate Building select from table
+          function populateBuilding() {
+              var select = $('#filter-building');
+              select.find('option:not(:first)').remove();
+              var uniques = {};
+              table.column(colBuilding, { search: 'applied' }).data().each(function (val) {
+                  val = (val || '').toString().trim();
+                  if (val) uniques[val] = true;
+              });
+              Object.keys(uniques).sort().forEach(function (v) {
+                  select.append(new Option(v, v));
+              });
+          }
+          populateBuilding();
 
-            table.on('draw', function () {
-                populateSelectFromColumn('#filter-building', buildingCol);
-                populateSelectFromColumn('#filter-type', typeCol);
-            });
+          // Restore saved DataTables state to selects
+          var state = table.state.loaded();
+          if (state && state.columns) {
+              // Building select (strip ^$ anchors)
+              var bSearch = state.columns[colBuilding]?.search?.search || '';
+              if (bSearch.startsWith('^') && bSearch.endsWith('$')) {
+                  bSearch = bSearch.slice(1, -1);
+                  try { bSearch = $.fn.dataTable.util.unescapeRegex(bSearch); } catch(e) {}
+              }
+              if (bSearch) $('#filter-building').val(bSearch);
 
-            $('#filter-building').on('change', function () {
-                var val = $(this).val();
-                table.column(buildingCol).search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
-            });
-            $('#filter-type').on('change', function () {
-                var val = $(this).val();
-                table.column(typeCol).search(val || '', false, false).draw();
-            });
-        });
+              // Approved select
+              var aSearch = state.columns[colApproved]?.search?.search || '';
+              if (aSearch === '^True$') $('#filter-approved').val('True');
+              else if (aSearch === '^False$') $('#filter-approved').val('False');
+          }
+
+          table.on('draw', function () {
+              populateBuilding();
+              if ($('#filter-building').val()) $('#filter-building').val($('#filter-building').val());
+          });
+
+          // Building filter
+          $('#filter-building').on('change', function () {
+              var val = $(this).val();
+              table.column(colBuilding).search(val ? '^' + $.fn.dataTable.util.escapeRegex(val) + '$' : '', true, false).draw();
+          });
+
+          // Approved filter
+          $('#filter-approved').on('change', function () {
+              var v = $(this).val();
+              // We search against the cell's data-search attr via a custom search plug-in
+              if (v === 'True') {
+                  table.column(colApproved).search('^True$', true, false).draw();
+              } else if (v === 'False') {
+                  table.column(colApproved).search('^False$', true, false).draw();
+              } else {
+                  table.column(colApproved).search('', false, false).draw();
+              }
+          });
+
+          // Make the Approved column filter actually use the td[data-search] value
+          // by overriding column search data source for that column.
+          $.fn.dataTable.ext.order['dom-data-search'] = function (settings, col) {
+              return this.api().column(col, { order: 'index' }).nodes().map(function (td) {
+                  return $(td).attr('data-search') || '';
+              });
+          };
+          $.fn.dataTable.ext.search.push(function (settings, data, dataIndex, rowData, counter) {
+              // Ensure column search uses data-search attribute for the Approved column
+              var col = colApproved;
+              var search = settings.aoPreSearchCols[col].sSearch; // regex if regex=true
+              if (!search) return true; // no filter
+              var td = settings.aoData[dataIndex].anCells[col];
+              var val = $(td).attr('data-search') || '';
+              var regex = settings.aoPreSearchCols[col].bRegex ? new RegExp(search) : null;
+              if (regex) return regex.test(val);
+              return (val.indexOf(search) !== -1);
+          });
+
+          // Click to toggle Approved
+          $('#assetTable').on('click', '.approved-cell', function() {
+              var cell = $(this);
+              var docId = cell.data('docid');
+
+              $.post('/toggle_approved/' + docId, function(resp) {
+                  if (resp.success) {
+                      if (resp.new_value === "True") {
+                          cell.html('✅');
+                          cell.attr('data-search', 'True');
+                      } else {
+                          cell.html('');
+                          cell.attr('data-search', 'False');
+                      }
+                      // Re-apply filter if one is active
+                      table.draw(false);
+                  } else {
+                      alert("Error: " + resp.error);
+                  }
+              }).fail(function() {
+                  alert("Failed to update Approved status.");
+              });
+          });
+      });
     </script>
 
 </body>
