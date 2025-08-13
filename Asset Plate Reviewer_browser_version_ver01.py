@@ -7,8 +7,8 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 
 app = Flask(
     __name__,
-    template_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review\review_asset_templates",
-    static_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review\review_asset_templates\static"
+    template_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_ME\review_asset_templates",
+    static_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_ME\review_asset_templates\static"
 )
 
 # --- Paths ---
