@@ -3,7 +3,7 @@ import json
 import re
 import sqlite3
 from functools import lru_cache
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify, abort
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
 app = Flask(
     __name__,
@@ -18,32 +18,48 @@ IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New A
 # --- SQLite DB ---
 DB_PATH = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\asset_capture_app\data\QR_codes.db"
 
-# Tabela/colunas
-QR_CODES_TABLE = "QR_codes"
-QR_CODE_ID_COL = "QR_code_ID"
-QR_APPROVED_COL = "Approved"
+# Tables/columns
+QR_CODES_TABLE   = "QR_codes"
+QR_CODE_ID_COL   = "QR_code_ID"
+QR_APPROVED_COL  = "Approved"
 
-# Ajuste se o schema dos dropdowns for diferente:
+SDI_TABLE = "sdi_dataset"
+# Target column names (intersected with actual schema at runtime)
+SDI_TARGET_COLS = [
+    "QR Code",
+    "Building",
+    "Manufacturer",
+    "Model",
+    "Serial",
+    "UBC Tag",
+    "Asset Group",
+    "Attribute",
+    "Description",
+    "Diameter",
+    "Year",
+    "Technical Safety BC",
+    "Approved",  # SDI now stores '1' (approved) or '0' (not approved)
+]
+
+# Dropdown sources
 ASSET_GROUP_TABLE = "Asset_Group"
 ASSET_GROUP_COL   = "name"
-
 ATTRIBUTE_TABLE   = "Attribute"
 ATTRIBUTE_COL     = "Code"
 
 VALID_IMAGE_EXTS = ['.jpg', '.JPG', '.jpeg', '.JPEG', '.png', '.PNG']
 
-# Missed Photo check: falta entre -0, -1, -2 => YES
+# Missed Photo check: missing among -0, -1, -2 => YES
 SEQ_CHECK = ['-0', '-1', '-2']
-# Review pode mostrar -3 se existir
+# Review can show -3 if present
 SEQ_SHOW  = ['-0', '-1', '-2', '-3']
 
-# Nome de arquivo JSON: "<QR>_ME_<Building>.json"
-# groups: (qr, asset_type_mid, building)
+# JSON filename pattern: "<QR>_ME_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_([A-Za-z]+)_(\d+(?:-\d+)?)\.json$")
 
 
 def find_image(qr: str, building: str, seq_tag: str):
-    """Encontra imagem pelo padrão '<QR> <Building> ME - <seq>.<ext>'."""
+    """Find image by pattern: '<QR> <Building> ME - <seq>.<ext>'."""
     seq = seq_tag.replace('-', '').strip()
     base = f"{qr} {building} ME - {seq}"
     for ext in VALID_IMAGE_EXTS:
@@ -55,12 +71,12 @@ def find_image(qr: str, building: str, seq_tag: str):
 
 @lru_cache(maxsize=1)
 def _connectable():
-    """Cache para verificar existência do DB."""
+    """Check DB path once (cached)."""
     return os.path.exists(DB_PATH)
 
 
 def _fetch_column_values(table: str, col: str):
-    """Lista única (ord.) para dropdowns."""
+    """Return sorted unique non-empty strings for dropdowns."""
     if not _connectable():
         return []
     try:
@@ -94,7 +110,7 @@ def _compute_description(asset_group: str, ubc_tag: str) -> str:
 
 
 def _is_me_filename(filename: str) -> bool:
-    """True se o JSON encode 'ME' no nome do arquivo."""
+    """True if the JSON encodes 'ME' in the filename."""
     m = JSON_NAME_RE.match(filename)
     if not m:
         return False
@@ -103,7 +119,7 @@ def _is_me_filename(filename: str) -> bool:
 
 
 def load_json_items():
-    """Carrega SOMENTE itens ME para o dashboard."""
+    """Load ME-only items for the dashboard."""
     items = []
     for filename in os.listdir(JSON_DIR):
         if not filename.endswith(".json") or filename.endswith("_raw_ocr.json"):
@@ -127,7 +143,7 @@ def load_json_items():
                 print(f"⚠️ Skipped {filename}: 'structured_data' is not a dict")
                 continue
 
-            # Garantir chaves
+            # Ensure keys
             data.setdefault("Manufacturer", "")
             data.setdefault("Model", "")
             data.setdefault("Serial Number", "")
@@ -136,16 +152,17 @@ def load_json_items():
             data.setdefault("Technical Safety BC", "")
             data.setdefault("Asset Group", "")
             data.setdefault("Attribute", "")
+            data.setdefault("Diameter", "")
             data.setdefault("Flagged", "false")
             data.setdefault("Approved", "")  # blank = False
 
-            # Derivado
+            # Derived
             data["Description"] = _compute_description(
                 data.get("Asset Group"),
                 data.get("UBC Tag")
             )
 
-            # Fotos faltantes (-0, -1, -2)
+            # Missing photos (-0, -1, -2)
             missing_tags = [tag for tag in SEQ_CHECK if not find_image(qr, building, tag)]
             missing_photo = len(missing_tags) > 0
             friendly_map = {'-0': 'Asset Plate', '-1': 'UBC Tag', '-2': 'Main Picture'}
@@ -155,7 +172,7 @@ def load_json_items():
                 "doc_id": doc_id,
                 "qr_code": qr,
                 "building": building,
-                "asset_type": "ME",  # imposto pelo filtro
+                "asset_type": "ME",  # enforced by filter
                 "Flagged": data.get("Flagged", "false"),
                 "Approved": data.get("Approved", ""),
                 "Modified": raw.get("modified", False),
@@ -208,13 +225,12 @@ def index():
 
 @app.route("/review/<doc_id>")
 def review(doc_id):
-    # Bloquear abertura manual para não-ME
+    # Block manual open for non-ME
     m = JSON_NAME_RE.match(f"{doc_id}.json")
     if not m:
         return "Bad ID", 400
     qr, asset_type_mid, building = m.groups()
     if asset_type_mid.upper() != "ME":
-        # Não expor que existe: 404
         return "Not found", 404
 
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
@@ -229,9 +245,10 @@ def review(doc_id):
     data.setdefault("Attribute", "")
     data.setdefault("UBC Tag", "")
     data.setdefault("Approved", "")
+    data.setdefault("Diameter", "")
     data["Description"] = _compute_description(data.get("Asset Group"), data.get("UBC Tag"))
 
-    # Mapa de imagens
+    # Images map
     images = {}
     for tag in SEQ_SHOW:
         filename = find_image(qr, building, tag)
@@ -240,7 +257,7 @@ def review(doc_id):
         else:
             images[tag] = {"exists": False, "url": None}
 
-    # Dropdowns
+    # Dropdown options
     asset_group_options = get_asset_group_options()
     attribute_options   = get_attribute_options()
 
@@ -260,17 +277,16 @@ def review(doc_id):
 
 def _db_upsert_qr_approved(qr_code_id: str, approved_text: str):
     """
-    Grava em SQLite:
-      - approved_text = '1' quando aprovado
-      - approved_text = '' quando não aprovado
-    Usa UPSERT em (QR_code_ID).
+    Write into QR_codes:
+      - approved_text = '1' when approved
+      - approved_text = '' when not approved  (leave as-is unless you want '0' here too)
     """
     if not _connectable():
-        raise RuntimeError("Database file not found.")
+        print("⚠️ Database file not found; skipping QR_codes upsert.")
+        return
 
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
-        # UPSERT compatível com SQLite 3.24+
         cur.execute(f"""
             INSERT INTO "{QR_CODES_TABLE}" ("{QR_CODE_ID_COL}", "{QR_APPROVED_COL}")
             VALUES (?, ?)
@@ -280,11 +296,106 @@ def _db_upsert_qr_approved(qr_code_id: str, approved_text: str):
         conn.commit()
 
 
+def _quote(name: str) -> str:
+    return f'"{name}"'.replace('""', '"')  # minimal safety
+
+
+def _db_get_columns(conn, table: str):
+    cur = conn.cursor()
+    cur.execute(f'PRAGMA table_info({_quote(table)})')
+    return {row[1] for row in cur.fetchall()}  # row[1] = column name
+
+
+def _db_upsert_row(conn, table: str, key_cols: list[str], row: dict):
+    """
+    Schema-aware upsert:
+      - Intersects requested columns with actual table columns
+      - UPDATE by key; if 0 rows, INSERT
+    """
+    existing_cols = _db_get_columns(conn, table)
+    if not existing_cols:
+        raise RuntimeError(f'Table "{table}" not found or has no columns.')
+
+    # Filter to existing columns only
+    filtered = {k: (row.get(k, "") or "") for k in row.keys() if k in existing_cols}
+
+    # Ensure key columns are present (and exist in table)
+    for key in key_cols:
+        if key not in filtered:
+            if key in existing_cols:
+                filtered[key] = ""
+            else:
+                raise RuntimeError(f'Key column "{key}" not found in table "{table}".')
+
+    # Build UPDATE (set all non-key columns that exist)
+    set_cols = [c for c in filtered.keys() if c not in key_cols]
+    cur = conn.cursor()
+    if set_cols:
+        set_clause = ", ".join(f'{_quote(c)} = ?' for c in set_cols)
+        where_clause = " AND ".join(f'{_quote(k)} = ?' for k in key_cols)
+        sql_upd = f'UPDATE {_quote(table)} SET {set_clause} WHERE {where_clause}'
+        params_upd = [filtered[c] for c in set_cols] + [filtered[k] for k in key_cols]
+        cur.execute(sql_upd, params_upd)
+        updated = cur.rowcount
+    else:
+        updated = 0
+
+    # If no row updated, INSERT the available columns
+    if updated == 0:
+        cols = list(filtered.keys())
+        placeholders = ", ".join("?" for _ in cols)
+        sql_ins = f'INSERT INTO {_quote(table)} ({", ".join(_quote(c) for c in cols)}) VALUES ({placeholders})'
+        params_ins = [filtered[c] for c in cols]
+        cur.execute(sql_ins, params_ins)
+
+
+def _db_upsert_sdi_dataset(qr: str, building: str, structured: dict):
+    """
+    Upsert into sdi_dataset (match by "QR Code" + "Building").
+    Missing fields => blank string.
+    Uses only columns that actually exist in the table.
+    Approved => '1' when True, '0' otherwise.
+    """
+    if not _connectable():
+        print("⚠️ Database file not found; skipping sdi_dataset upsert.")
+        return
+
+    # Convert structured["Approved"] -> '1' or '0'
+    approved_flag = "1" if (structured.get("Approved", "") == "True") else "0"
+
+    # Build desired row dict
+    row = {
+        "QR Code": qr or "",
+        "Building": building or "",
+        "Manufacturer": str(structured.get("Manufacturer", "") or ""),
+        "Model": str(structured.get("Model", "") or ""),
+        "Serial": str(structured.get("Serial Number", "") or ""),  # mapping
+        "UBC Tag": str(structured.get("UBC Tag", "") or ""),
+        "Asset Group": str(structured.get("Asset Group", "") or ""),
+        "Attribute": str(structured.get("Attribute", "") or ""),
+        "Description": str(_compute_description(structured.get("Asset Group", ""), structured.get("UBC Tag", "")) or ""),
+        "Diameter": str(structured.get("Diameter", "") or ""),
+        "Year": str(structured.get("Year", "") or ""),
+        "Technical Safety BC": str(structured.get("Technical Safety BC", "") or ""),
+        "Approved": approved_flag,  # now 1/0
+    }
+
+    with sqlite3.connect(DB_PATH) as conn:
+        _db_upsert_row(conn, SDI_TABLE, key_cols=["QR Code", "Building"], row=row)
+        conn.commit()
+
+
 @app.route("/review/<doc_id>", methods=["POST"])
 def save_review(doc_id):
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
         return "Not found", 404
+
+    # parse qr/building for SDI upsert
+    m = JSON_NAME_RE.match(f"{doc_id}.json")
+    if not m:
+        return "Bad ID", 400
+    qr, asset_type_mid, building = m.groups()
 
     with open(json_path, "r", encoding="utf-8") as f:
         json_data = json.load(f)
@@ -294,10 +405,16 @@ def save_review(doc_id):
         structured = {}
         json_data["structured_data"] = structured
 
-    # Ensure keys
+    # Ensure keys (and keep blanks if missing)
+    structured.setdefault("Manufacturer", "")
+    structured.setdefault("Model", "")
+    structured.setdefault("Serial Number", "")
+    structured.setdefault("Year", "")
+    structured.setdefault("UBC Tag", "")
+    structured.setdefault("Technical Safety BC", "")
     structured.setdefault("Asset Group", "")
     structured.setdefault("Attribute", "")
-    structured.setdefault("UBC Tag", "")
+    structured.setdefault("Diameter", "")
     structured.setdefault("Approved", "")
     structured.setdefault("Flagged", "false")
 
@@ -307,7 +424,7 @@ def save_review(doc_id):
         json_data["modified"] = True
     structured["Flagged"] = new_flagged
 
-    # Campos editáveis (exceto Description/Approved)
+    # Editable fields (skip Description/Approved)
     for field in list(structured.keys()):
         if field in ("Flagged", "Description", "Approved"):
             continue
@@ -316,7 +433,7 @@ def save_review(doc_id):
             json_data["modified"] = True
         structured[field] = form_value
 
-    # Novos campos eventuais
+    # Capture any brand-new fields
     for field, form_value in request.form.items():
         if field in ("Flagged", "action", "Description", "dashboard_query"):
             continue
@@ -324,16 +441,23 @@ def save_review(doc_id):
             structured[field] = form_value
             json_data["modified"] = True
 
-    # Recalcular Description
+    # Recompute Description
     structured["Description"] = _compute_description(
         structured.get("Asset Group"),
         structured.get("UBC Tag")
     )
 
+    # Persist JSON
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-    # Navegação Next/Prev (ME-only)
+    # --- SDI upsert every save (will write Approved as 1/0) ---
+    try:
+        _db_upsert_sdi_dataset(qr=qr, building=building, structured=structured)
+    except Exception as e:
+        print(f"⚠️ sdi_dataset upsert failed: {e}")
+
+    # Next/Prev navigation (ME-only)
     all_files = sorted(
         f for f in os.listdir(JSON_DIR)
         if f.endswith(".json")
@@ -346,7 +470,7 @@ def save_review(doc_id):
         current_index = all_files.index(current_name)
     except ValueError:
         dash_q = request.form.get("dashboard_query", "")
-        if dash_q.startswith("?"):
+        if (dash_q or "").startswith("?"):
             return redirect(url_for("index") + dash_q)
         return redirect(url_for("index"))
 
@@ -359,7 +483,7 @@ def save_review(doc_id):
         return redirect(url_for("review", doc_id=prev_doc))
 
     dash_q = request.form.get("dashboard_query", "")
-    if dash_q.startswith("?"):
+    if (dash_q or "").startswith("?"):
         return redirect(url_for("index") + dash_q)
 
     return redirect(url_for("index"))
@@ -367,21 +491,17 @@ def save_review(doc_id):
 
 @app.route("/toggle_approved/<doc_id>", methods=["POST"])
 def toggle_approved(doc_id):
-    """Alterna Approved no JSON e grava em QR_codes (SQLite):
-       - '1' quando aprovado
-       - '' quando desmarcado
-    """
+    """Toggle Approved in JSON and update QR_codes; also refresh sdi_dataset row with 1/0."""
     json_path = os.path.join(JSON_DIR, f"{doc_id}.json")
     if not os.path.exists(json_path):
         return jsonify({"success": False, "error": "Not found"}), 404
 
-    # Extrair QR do doc_id
+    # Parse QR/building
     m = JSON_NAME_RE.match(f"{doc_id}.json")
     if not m:
         return jsonify({"success": False, "error": "Bad ID"}), 400
     qr, asset_type_mid, building = m.groups()
     if asset_type_mid.upper() != "ME":
-        # Proteção extra: só permite ME
         return jsonify({"success": False, "error": "Not allowed"}), 403
 
     try:
@@ -401,9 +521,15 @@ def toggle_approved(doc_id):
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, ensure_ascii=False, indent=4)
 
-        # Atualizar DB: '1' quando aprovado, '' quando não
+        # Update QR_codes (1 / '')
         db_val = "1" if new_val == "True" else ""
         _db_upsert_qr_approved(qr_code_id=qr, approved_text=db_val)
+
+        # Ensure sdi_dataset row exists/up-to-date (Approved as 1/0)
+        try:
+            _db_upsert_sdi_dataset(qr=qr, building=building, structured=structured)
+        except Exception as e:
+            print(f"⚠️ sdi_dataset upsert (from toggle) failed: {e}")
 
         return jsonify({"success": True, "new_value": structured["Approved"]})
     except Exception as e:
@@ -416,4 +542,4 @@ def serve_image(filename):
 
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5002, debug=True)
