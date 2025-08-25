@@ -7,16 +7,16 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 
 app = Flask(
     __name__,
-    template_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_ME\review_asset_templates",
-    static_folder=r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\Asset_plate_review_ME\review_asset_templates\static"
+    template_folder=r"/home/developer/Asset_plate_review_ME/review_asset_templates",
+    static_folder=r"/home/developer/Asset_plate_review_ME/review_asset_templates/static"
 )
 
 # --- Paths ---
-JSON_DIR = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\API\Output_jason_api"
-IMG_DIR  = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\QR_code_project\Capture_photos_upload"
+JSON_DIR = r"/home/developer/Output_jason_api"
+IMG_DIR  = r"/home/developer/Capture_photos_upload"
 
 # --- SQLite DB ---
-DB_PATH = r"S:\MaintOpsPlan\AssetMgt\Asset Management Process\Database\8. New Assets\Git_control\asset_capture_app_dev\data\QR_codes.db"
+DB_PATH = r"/home/developer/asset_capture_app_dev/data/User_control.db"
 
 # Tables/columns
 QR_CODES_TABLE   = "QR_codes"
