@@ -198,6 +198,12 @@ def load_json_items():
     return items
 
 
+# --- Healthcheck (plain text) ---
+@app.route("/health")
+def health():
+    return "Asset Plate Reviewer App working!", 200, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/")
 def index():
     flagged_filter = request.args.get("flagged")
@@ -354,7 +360,7 @@ def _db_upsert_row(conn, table: str, key_cols: list[str], row: dict):
 
     # If no row updated, INSERT the available columns
     if updated == 0:
-        cols = list(filtered.keys())
+        cols = list(filtered.keys()]
         placeholders = ", ".join("?" for _ in cols)
         sql_ins = f'INSERT INTO {_quote(table)} ({", ".join(_quote(c) for c in cols)}) VALUES ({placeholders})'
         params_ins = [filtered[c] for c in cols]
@@ -555,3 +561,4 @@ def serve_image(filename):
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5002, debug=True)
+
