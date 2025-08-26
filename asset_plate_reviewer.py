@@ -28,7 +28,7 @@ JSON_DIR = r"/home/developer/Output_jason_api"
 IMG_DIR  = r"/home/developer/Capture_photos_upload"
 
 # --- SQLite DB ---
-DB_PATH = r"/home/developer/asset_capture_app_dev/data/User_control.db"
+DB_PATH = r"/home/developer/asset_capture_app_dev/data/QR_codes.db"
 
 # Tables/columns
 QR_CODES_TABLE   = "QR_codes"
