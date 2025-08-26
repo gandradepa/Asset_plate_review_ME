@@ -360,7 +360,7 @@ def _db_upsert_row(conn, table: str, key_cols: list[str], row: dict):
 
     # If no row updated, INSERT the available columns
     if updated == 0:
-        cols = list(filtered.keys()]
+        cols = list(filtered.keys())
         placeholders = ", ".join("?" for _ in cols)
         sql_ins = f'INSERT INTO {_quote(table)} ({", ".join(_quote(c) for c in cols)}) VALUES ({placeholders})'
         params_ins = [filtered[c] for c in cols]
