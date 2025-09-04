@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ title or 'Asset Review - Mechanical' }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .viewer {
+      position: relative;
+      width: 100%;
+      background: #f7f9fb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+      min-height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .viewer img {
+      max-width: 100%;
+      max-height: 70vh;
+      transition: transform 0.2s ease;
+      transform-origin: center center;
+    }
+    .thumbs img {
+      height: 82px;
+      width: auto;
+      object-fit: contain;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 4px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .thumbs img.active {
+      border-color: #0d6efd;
+      box-shadow: 0 0 0 2px rgba(13,110,253,.25);
+    }
+    .label-sm {
+      font-size: .85rem;
+      color: #6b7280;
+    }
+  </style>
+</head>
+<body class="container-fluid py-3">
+
+  <!-- Header -->
+  <div class="d-flex justify-content-start align-items-center mb-3">
+    <a href="{{ url_for('index') }}">
+      <img src="{{ url_for('static', filename='ubc-logo.png') }}" alt="UBC Logo" style="height: 60px; margin-right: 16px;">
+    </a>
+    <div>
+      <h2 class="m-0">{{ title or 'Asset Review - Mechanical' }}</h2>
+      <div class="text-muted">
+        <span class="me-3"><strong>QR:</strong> {{ qr_code }}</span>
+        <span class="me-3"><strong>Building:</strong> {{ building }}</span>
+        <span class="me-3"><strong>Type:</strong> ME</span>
+        <span><strong>Doc:</strong> {{ doc_id }}</span>
+      </div>
+    </div>
+  </div>
+
+  <form method="POST" action="{{ url_for('save_review', doc_id=doc_id) }}" id="reviewForm">
+    <!-- (oculto) manter valor Approved sem exibir -->
+    <input type="hidden" name="Approved" value="{{ data.get('Approved','') }}">
+    <!-- (oculto) ação: save / save_next / save_prev -->
+    <input type="hidden" name="action" id="actionField" value="save">
+    <!-- (oculto) querystring do dashboard para voltar com filtros -->
+    <input type="hidden" name="dashboard_query" id="dashboardQuery" value="">
+
+    <div class="row g-4">
+      <!-- Coluna esquerda: Imagens -->
+      <div class="col-lg-7">
+        <div class="viewer mb-3">
+          {% set first_url = (images.get('-0') and images['-0']['url']) or
+                             (images.get('-1') and images['-1']['url']) or
+                             (images.get('-2') and images['-2']['url']) or
+                             (images.get('-3') and images['-3']['url']) %}
+          {% if first_url %}
+            <img id="mainImage" src="{{ first_url }}" alt="Asset image">
+          {% else %}
+            <div class="text-muted">No images found.</div>
+          {% endif %}
+        </div>
+
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="zoomOut">- Zoom</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="zoomIn">+ Zoom</button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rotate">Rotate</button>
+          <div class="ms-auto d-flex gap-2">
+            <a class="btn btn-light btn-sm" id="backToDash" href="{{ url_for('index') }}">Back</a>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="skipBtn">Skip</button>
+          </div>
+        </div>
+
+        <!-- Thumbs -->
+        <div class="thumbs d-flex flex-wrap gap-2">
+          {% for tag,label in [('-0','Asset Plate'),('-1','UBC Tag'),('-2','Main Picture'),('-3','TSBC')] %}
+            {% set it = images.get(tag) %}
+            {% if it and it['exists'] %}
+              <div class="text-center">
+                <img src="{{ it['url'] }}" data-seq="{{ tag }}" class="{% if it['url']==first_url %}active{% endif %}" alt="{{ label }}">
+                <div class="label-sm mt-1">{{ label }}</div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- Coluna direita: Formulário -->
+      <div class="col-lg-5">
+        <div class="card">
+          <div class="card-body">
+
+            <!-- 4 principais -->
+            <div class="row g-3">
+              <div class="col-md-12">
+                <label class="form-label">Manufacturer</label>
+                <input type="text" class="form-control" name="Manufacturer" value="{{ data.get('Manufacturer','') }}">
+              </div>
+              <div class="col-md-12">
+                <label class="form-label">Model</label>
+                <input type="text" class="form-control" name="Model" value="{{ data.get('Model','') }}">
+              </div>
+              <div class="col-md-12">
+                <label class="form-label">Serial Number</label>
+                <input type="text" class="form-control" name="Serial Number" value="{{ data.get('Serial Number','') }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Year</label>
+                <input type="text" class="form-control" name="Year" value="{{ data.get('Year','') }}">
+              </div>
+              <div class="col-md-6 d-flex align-items-end">
+                <div class="form-check mt-3">
+                  <input class="form-check-input" type="checkbox" id="flagged" name="Flagged" {% if data.get('Flagged') == 'true' %}checked{% endif %}>
+                  <label class="form-check-label" for="flagged">Flag for Review</label>
+                </div>
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">UBC Tag</label>
+                <input type="text" class="form-control" name="UBC Tag" value="{{ data.get('UBC Tag','') }}">
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">Technical Safety BC</label>
+                <input type="text" class="form-control" name="Technical Safety BC" value="{{ data.get('Technical Safety BC','') }}">
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">Asset Group</label>
+                <select class="form-select" name="Asset Group">
+                  <option value=""></option>
+                  {% for opt in asset_group_options %}
+                    <option value="{{ opt }}" {% if data.get('Asset Group','') == opt %}selected{% endif %}>{{ opt }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">Attribute</label>
+                <select class="form-select" name="Attribute">
+                  <option value=""></option>
+                  {% for opt in attribute_options %}
+                    <option value="{{ opt }}" {% if data.get('Attribute','') == opt %}selected{% endif %}>{{ opt }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="col-md-12">
+                <label class="form-label">Description (auto)</label>
+                <input type="text" class="form-control" value="{{ data.get('Description','') }}" readonly>
+                <div class="form-text"><strong>Generated Automatically using <code>Asset Group - UBC Tag</code></strong></div>
+              </div>
+            </div>
+
+            <hr class="my-4">
+
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-primary" id="saveBtn">Save</button>
+              <button type="button" class="btn btn-outline-secondary" id="savePrevBtn">Save &amp; Prev</button>
+              <button type="button" class="btn btn-outline-secondary" id="saveNextBtn">Save &amp; Next</button>
+              <a class="btn btn-light ms-auto" id="backBtn" href="{{ url_for('index') }}">Back to Dashboard</a>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // Persistir query do dashboard
+    (function(){
+      try {
+        var q = localStorage.getItem('dashboardQuery') || '';
+        document.getElementById('dashboardQuery').value = q.startsWith('?') ? q : '';
+        if (q) {
+          var backLink = document.getElementById('backToDash');
+          if (backLink) backLink.href = backLink.href + q;
+          var backBtn = document.getElementById('backBtn');
+          if (backBtn) backBtn.href = backBtn.href + q;
+        }
+      } catch(e) {}
+    })();
+
+    // Thumbnails -> troca imagem principal
+    (function(){
+      var mainImg = document.getElementById('mainImage');
+      if (!mainImg) return;
+
+      var thumbs = document.querySelectorAll('.thumbs img');
+      thumbs.forEach(function(t){
+        t.addEventListener('click', function(){
+          thumbs.forEach(function(x){ x.classList.remove('active'); });
+          t.classList.add('active');
+          mainImg.src = t.src;
+          // reset transform ao trocar de imagem
+          scale = 1.0; rotation = 0; applyTransform();
+        });
+      });
+    })();
+
+    // Zoom/Rotate
+    var scale = 1.0;
+    var rotation = 0;
+    var mainImage = document.getElementById('mainImage');
+
+    function applyTransform() {
+      if (!mainImage) return;
+      mainImage.style.transform = 'scale(' + scale + ') rotate(' + rotation + 'deg)';
+    }
+    document.getElementById('zoomIn')?.addEventListener('click', function(){ scale = Math.min(5, scale + 0.1); applyTransform(); });
+    document.getElementById('zoomOut')?.addEventListener('click', function(){ scale = Math.max(0.2, scale - 0.1); applyTransform(); });
+    document.getElementById('rotate')?.addEventListener('click', function(){ rotation = (rotation + 90) % 360; applyTransform(); });
+
+    // Botões de ação
+    document.getElementById('savePrevBtn')?.addEventListener('click', function(){
+      document.getElementById('actionField').value = 'save_prev';
+      document.getElementById('reviewForm').submit();
+    });
+    document.getElementById('saveNextBtn')?.addEventListener('click', function(){
+      document.getElementById('actionField').value = 'save_next';
+      document.getElementById('reviewForm').submit();
+    });
+    document.getElementById('skipBtn')?.addEventListener('click', function(){
+      // Skip = save_next sem alterar campos
+      document.getElementById('actionField').value = 'save_next';
+      document.getElementById('reviewForm').submit();
+    });
+    document.getElementById('saveBtn')?.addEventListener('click', function(){
+      document.getElementById('actionField').value = 'save';
+    });
+  </script>
+</body>
+</html>
