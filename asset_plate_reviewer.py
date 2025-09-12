@@ -4,6 +4,7 @@ import re
 import sqlite3
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, jsonify
 
 # --- Resolve paths relative to this repository for templates/static ---
@@ -50,7 +51,7 @@ SDI_TARGET_COLS = [
     "Diameter",
     "Year",
     "Technical Safety BC",
-    "Approved",  # SDI now stores '1' (approved) or '0' (not approved)
+    "Approved",
 ]
 
 # Dropdown sources
@@ -68,6 +69,147 @@ SEQ_SHOW  = ['-0', '-1', '-2', '-3']
 
 # JSON filename pattern: "<QR>_ME_<Building>.json"
 JSON_NAME_RE = re.compile(r"^(\d+)_([A-Za-z]+)_(\d+(?:-\d+)?)\.json$")
+
+
+# --- START: Directory Sync Logic ---
+
+# --- Image Sync ---
+DATA_DIR = Path(DB_PATH).parent
+PROCESSED_LOG = DATA_DIR / "processed_images.log"
+IMG_NAME_RE = re.compile(r"^(\d+)\s+(.+?)\s+ME\s+-\s+[0-3]\.(?:jpe?g|png)$", re.IGNORECASE)
+image_sync_lock = Lock()
+
+# --- JSON Sync ---
+PROCESSED_JSON_LOG = DATA_DIR / "processed_json.log"
+json_sync_lock = Lock()
+
+
+def sync_image_directory_to_db():
+    """
+    Scans IMG_DIR for new image files and upserts placeholder entries into sdi_dataset.
+    This ensures an asset record exists as soon as a photo is uploaded.
+    """
+    if not image_sync_lock.acquire(blocking=False):
+        return
+
+    try:
+        if not os.path.isdir(IMG_DIR):
+            return
+
+        processed_files = set()
+        if PROCESSED_LOG.exists():
+            with open(PROCESSED_LOG, 'r', encoding='utf-8') as f:
+                processed_files = {line.strip() for line in f if line.strip()}
+
+        current_files = {f for f in os.listdir(IMG_DIR) if f.lower().endswith(tuple(VALID_IMAGE_EXTS))}
+        new_files = sorted(list(current_files - processed_files))
+
+        if not new_files:
+            return
+
+        print(f"SYNC-IMG: Found {len(new_files)} new image(s).")
+        successfully_processed = []
+        for filename in new_files:
+            match = IMG_NAME_RE.match(filename)
+            if not match:
+                successfully_processed.append(filename)
+                continue
+
+            qr, building = match.groups()
+            try:
+                _db_upsert_sdi_dataset(qr=qr.strip(), building=building.strip(), structured={})
+                successfully_processed.append(filename)
+            except Exception as e:
+                print(f"SYNC-IMG-ERROR: DB upsert failed for {filename}: {e}")
+
+        if successfully_processed:
+            with open(PROCESSED_LOG, 'a', encoding='utf-8') as f:
+                for filename in successfully_processed:
+                    f.write(f"{filename}\n")
+    finally:
+        image_sync_lock.release()
+
+
+def sync_json_directory_to_db():
+    """
+    Scans JSON_DIR for new or modified JSON files and upserts their structured data
+    into the sdi_dataset table to keep it fully updated.
+    """
+    if not json_sync_lock.acquire(blocking=False):
+        return
+
+    try:
+        if not os.path.isdir(JSON_DIR):
+            return
+
+        # Load the log of processed JSON files and their modification times
+        processed_files = {}
+        if PROCESSED_JSON_LOG.exists():
+            with open(PROCESSED_JSON_LOG, 'r', encoding='utf-8') as f:
+                try:
+                    processed_files = json.load(f)
+                except json.JSONDecodeError:
+                    print("SYNC-JSON-WARN: Could not read processed_json.log, starting fresh.")
+
+        files_to_process = {}
+        for filename in os.listdir(JSON_DIR):
+            if not _is_me_filename(filename):
+                continue
+            
+            filepath = os.path.join(JSON_DIR, filename)
+            current_mtime = os.path.getmtime(filepath)
+            
+            # Process if the file is new or has been modified since last sync
+            if filename not in processed_files or current_mtime > processed_files[filename]:
+                files_to_process[filename] = current_mtime
+
+        if not files_to_process:
+            return
+
+        print(f"SYNC-JSON: Found {len(files_to_process)} new/updated JSON file(s).")
+        for filename, mtime in files_to_process.items():
+            m = JSON_NAME_RE.match(filename)
+            if not m:
+                continue
+            
+            qr, _, building = m.groups()
+            
+            try:
+                with open(os.path.join(JSON_DIR, filename), 'r', encoding='utf-8') as f:
+                    content = json.load(f)
+                
+                structured_data = content.get("structured_data", {})
+                if isinstance(structured_data, dict):
+                    print(f"   -> Syncing data from {filename}")
+                    _db_upsert_sdi_dataset(qr=qr, building=building, structured=structured_data)
+                    processed_files[filename] = mtime # Update log on success
+                else:
+                    print(f"SYNC-JSON-WARN: 'structured_data' in {filename} is not a dict.")
+                    processed_files[filename] = mtime # Log as processed to avoid re-checking
+
+            except Exception as e:
+                print(f"SYNC-JSON-ERROR: Failed to process {filename}: {e}")
+        
+        # Write the updated log back to the file
+        with open(PROCESSED_JSON_LOG, 'w', encoding='utf-8') as f:
+            json.dump(processed_files, f, indent=2)
+
+    finally:
+        json_sync_lock.release()
+
+
+@app.before_request
+def before_request_handler():
+    """
+    Runs before each request. First, syncs new images for placeholder records,
+    then syncs new/updated JSONs for detailed data.
+    """
+    if request.endpoint in ('static', 'serve_image'):
+        return
+    sync_image_directory_to_db()
+    sync_json_directory_to_db()
+
+# --- END: Directory Sync Logic ---
 
 
 def find_image(qr: str, building: str, seq_tag: str):
@@ -123,6 +265,7 @@ def _compute_description(asset_group: str, ubc_tag: str) -> str:
 
 def _is_me_filename(filename: str) -> bool:
     """True if the JSON encodes 'ME' in the filename."""
+    if not filename.endswith(".json"): return False
     m = JSON_NAME_RE.match(filename)
     if not m:
         return False
@@ -561,3 +704,4 @@ def serve_image(filename):
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5002, debug=True)
+
