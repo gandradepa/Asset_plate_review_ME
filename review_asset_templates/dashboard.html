@@ -9,6 +9,12 @@
         .filters-bar .form-select { min-width: 220px; }
         .filters-bar .badge { font-weight: 500; }
         td.approved-cell { cursor: pointer; }
+        
+        /* This rule prevents text from wrapping inside table cells. */
+        /* The "!important" flag ensures it overrides any other styles. */
+        #assetTable td {
+            white-space: nowrap !important;
+        }
     </style>
 </head>
 <body class="container-fluid py-4">
@@ -22,7 +28,6 @@
         </a>
     </div>
 
-    <!-- Quick filters -->
     <div class="filters-bar row g-3 align-items-center mb-3">
         <div class="col-auto">
             <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm px-3 {% if not flagged_filter and not modified_filter and not missed_filter %}active{% endif %}">All</a>
@@ -57,82 +62,81 @@
         </div>
     </div>
 
-    <table id="assetTable" class="table table-striped table-bordered align-middle text-center w-100">
-        <thead class="table-dark">
-            <tr>
-                <th class="text-center">QR Code</th>
-                <th class="text-center">Building</th>
-                <th class="text-start">Manufacturer</th>
-                <th class="text-start">Model</th>
-                <th class="text-start">Serial</th>
-                <th class="text-center">Year</th>
-                <th class="text-start">UBC Tag</th>
-                <th class="text-start">Technical Safety BC</th>
-                <th class="text-start">Asset Group</th>
-                <th class="text-start">Attribute</th>
-                <th class="text-start">Description</th>
-                <th class="text-center">Approved</th>
-                <th class="text-center">Flagged</th>
-                <th class="text-center">Modified</th>
-                <th class="text-center">Missed Photo</th>
-                <th class="text-center">Action</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for item in data %}
-            <tr>
-                <td>{{ item.qr_code }}</td>
-                <td>{{ item.building }}</td>
-                <td class="text-start">{{ item.Manufacturer }}</td>
-                <td class="text-start">{{ item.Model }}</td>
-                <td class="text-start">{{ item['Serial Number'] }}</td>
-                <td>{{ item.Year }}</td>
-                <td class="text-start">{{ item['UBC Tag'] }}</td>
-                <td class="text-start">{{ item['Technical Safety BC'] }}</td>
-                <td class="text-start">{{ item['Asset Group'] }}</td>
-                <td class="text-start">{{ item['Attribute'] }}</td>
-                <td class="text-start">{{ item['Description'] }}</td>
+    <div class="table-responsive">
+        <table id="assetTable" class="table table-striped table-bordered align-middle text-center">
+            <thead class="table-dark">
+                <tr>
+                    <th class="text-center">QR Code</th>
+                    <th class="text-center">Building</th>
+                    <th class="text-start">Manufacturer</th>
+                    <th class="text-start">Model</th>
+                    <th class="text-start">Serial</th>
+                    <th class="text-center">Year</th>
+                    <th class="text-start">UBC Tag</th>
+                    <th class="text-start">Technical Safety BC</th>
+                    <th class="text-start">Asset Group</th>
+                    <th class="text-start">Attribute</th>
+                    <th class="text-start">Description</th>
+                    <th class="text-center">Approved</th>
+                    <th class="text-center">Flagged</th>
+                    <th class="text-center">Modified</th>
+                    <th class="text-center">Missed Photo</th>
+                    <th class="text-center">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for item in data %}
+                <tr>
+                    <td>{{ item.qr_code }}</td>
+                    <td>{{ item.building }}</td>
+                    <td class="text-start">{{ item.Manufacturer }}</td>
+                    <td class="text-start">{{ item.Model }}</td>
+                    <td class="text-start">{{ item['Serial Number'] }}</td>
+                    <td>{{ item.Year }}</td>
+                    <td class="text-start">{{ item['UBC Tag'] }}</td>
+                    <td class="text-start">{{ item['Technical Safety BC'] }}</td>
+                    <td class="text-start">{{ item['Asset Group'] }}</td>
+                    <td class="text-start">{{ item['Attribute'] }}</td>
+                    <td class="text-start">{{ item['Description'] }}</td>
 
-                {% set approved_bool = 'True' if item['Approved'] == 'True' else 'False' %}
-                <td class="approved-cell"
-                    data-docid="{{ item.doc_id }}"
-                    data-search="{{ approved_bool }}"
-                    title="Click to toggle Approved">
-                    {% if item['Approved'] == 'True' %}✅{% else %}☐{% endif %}
-                </td>
+                    {% set approved_bool = 'True' if item['Approved'] == 'True' else 'False' %}
+                    <td class="approved-cell"
+                        data-docid="{{ item.doc_id }}"
+                        data-search="{{ approved_bool }}"
+                        title="Click to toggle Approved">
+                        {% if item['Approved'] == 'True' %}✅{% else %}☐{% endif %}
+                    </td>
 
-                <td>{% if item.Flagged == 'true' %}🚩{% else %}&mdash;{% endif %}</td>
-                <td>{% if item.Modified %}✏️{% else %}&mdash;{% endif %}</td>
-                <td>
-                  {% if item['Missed Photo'] == 'YES' %}
-                    <span class="text-danger"
-                          data-bs-toggle="tooltip"
-                          data-bs-placement="top"
-                          title="Missing: {{ item['Missing List'] }}">
-                      ❌ {{ item['Photos Summary'] }}
-                    </span>
-                  {% else %}
-                    <span class="text-success"
-                          data-bs-toggle="tooltip"
-                          data-bs-placement="top"
-                          title="All required present">
-                      ✅ 3/3
-                    </span>
-                  {% endif %}
-                </td>
-                <td>
-                    <a class="btn btn-primary btn-sm" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
-                </td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-
-    <footer class="text-center mt-5 pt-4 border-top text-muted small">
+                    <td>{% if item.Flagged == 'true' %}🚩{% else %}&mdash;{% endif %}</td>
+                    <td>{% if item.Modified %}✏️{% else %}&mdash;{% endif %}</td>
+                    <td>
+                      {% if item['Missed Photo'] == 'YES' %}
+                        <span class="text-danger"
+                              data-bs-toggle="tooltip"
+                              data-bs-placement="top"
+                              title="Missing: {{ item['Missing List'] }}">
+                          ❌ {{ item['Photos Summary'] }}
+                        </span>
+                      {% else %}
+                        <span class="text-success"
+                              data-bs-toggle="tooltip"
+                              data-bs-placement="top"
+                              title="All required present">
+                          ✅ 3/3
+                        </span>
+                      {% endif %}
+                    </td>
+                    <td>
+                        <a class="btn btn-primary btn-sm" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div> <footer class="text-center mt-5 pt-4 border-top text-muted small">
         © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
     </footer>
 
-    <!-- jQuery, Bootstrap, DataTables -->
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
