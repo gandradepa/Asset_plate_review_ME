@@ -138,7 +138,8 @@
                   {% endif %}
                 </td>
                 <td>
-                    <a class="btn btn-primary btn-sm" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
+                    <!-- MODIFIED: Add 'disabled' class if item is already approved on page load -->
+                    <a class="btn btn-primary btn-sm {% if item['Approved'] == 'True' %}disabled{% endif %}" href="{{ url_for('review', doc_id=item.doc_id) }}">Review</a>
                 </td>
             </tr>
         {% endfor %}
@@ -148,6 +149,24 @@
     <footer class="text-center mt-5 pt-4 border-top text-muted small">
         © 2025 University of British Columbia - Maintenance Planning Department. All rights reserved.
     </footer>
+
+    <!-- ADDED: Modal for Planon export warning -->
+    <div class="modal fade" id="planonModal" tabindex="-1" aria-labelledby="planonModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="planonModalLabel">Action Not Allowed</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            The asset was exported to Planon, so you cannot proceed it again.
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -236,27 +255,69 @@
               return (val.indexOf(search) !== -1);
           });
 
+          // ADDED: Initialize the Bootstrap modal to be used for warnings
+          var planonModal = new bootstrap.Modal(document.getElementById('planonModal'));
+
+          // REPLACED: New click handler with the requested logic
           $('#assetTable').on('click', '.approved-cell', function() {
               var cell = $(this);
               var docId = cell.data('docid');
+              var tr = cell.closest('tr');
+              var qrCode = tr.find('td:first').text().trim();
+              var reviewButton = tr.find('a.btn-primary');
+              var isCurrentlyApproved = cell.attr('data-search') === 'True';
 
+              if (isCurrentlyApproved) {
+                  // --- Logic for changing from TRUE to FALSE ---
+                  // Before toggling, we must check if the asset was exported.
+
+                  /*
+                   * NOTE FOR BACKEND: This logic assumes an endpoint at `/check_sdi/<qr_code>` exists.
+                   * This endpoint should check the 'sdi_print_out' table.
+                   * It is expected to return JSON: `{"exists": true}` if the QR code
+                   * is found, and `{"exists": false}` otherwise.
+                   */
+                  $.get('/check_sdi/' + qrCode, function(response) {
+                      if (response.exists) {
+                          // Asset is exported, show warning and stop.
+                          planonModal.show();
+                      } else {
+                          // Asset not exported, so we can proceed with un-approving.
+                          toggleApprovedStatus(docId, cell, reviewButton);
+                      }
+                  }).fail(function() {
+                      alert("Server Error: Could not check the asset's export status.");
+                  });
+
+              } else {
+                  // --- Logic for changing from FALSE to TRUE ---
+                  // No pre-check is needed to approve an asset.
+                  toggleApprovedStatus(docId, cell, reviewButton);
+              }
+          });
+
+          function toggleApprovedStatus(docId, cell, reviewButton) {
               $.post('/toggle_approved/' + docId, function(resp) {
                   if (resp.success) {
+                      var tr = cell.closest('tr');
                       if (resp.new_value === "True") {
                           cell.html('✅');
                           cell.attr('data-search', 'True');
+                          reviewButton.addClass('disabled').prop('disabled', true);
                       } else {
                           cell.html('☐');
                           cell.attr('data-search', 'False');
+                          reviewButton.removeClass('disabled').prop('disabled', false);
                       }
-                      table.row(cell.closest('tr')).invalidate().draw(false);
+                      // Invalidate the row to make sure DataTables updates its internal search data
+                      table.row(tr).invalidate().draw(false);
                   } else {
-                      alert("Error: ".concat(resp.error));
+                      alert("Error: ".concat(resp.error || "Could not update status."));
                   }
               }).fail(function() {
-                  alert("Failed to update Approved status.");
+                  alert("Server error: Failed to update Approved status.");
               });
-          });
+          }
       });
     </script>
 

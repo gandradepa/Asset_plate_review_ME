@@ -697,6 +697,37 @@ def toggle_approved(doc_id):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/check_sdi/<qr_code>")
+def check_sdi(qr_code):
+    """
+    Checks if a QR code exists in the sdi_print_out table to prevent
+    un-approving an asset that has already been exported to Planon.
+    """
+    if not _connectable():
+        return jsonify({"error": "Database not accessible"}), 500
+
+    sdi_print_out_table = "sdi_print_out"
+    qr_col = "QR Code"
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cur = conn.cursor()
+            query = f"SELECT 1 FROM {_quote(sdi_print_out_table)} WHERE {_quote(qr_col)} = ? LIMIT 1"
+            cur.execute(query, (qr_code,))
+            result = cur.fetchone()
+            return jsonify({"exists": result is not None})
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e).lower():
+            # If the table doesn't exist, no items have been exported. Safe to proceed.
+            return jsonify({"exists": False})
+        
+        print(f"!! DB Operational Error in /check_sdi: {e}")
+        return jsonify({"error": f"Database query failed: {e}"}), 500
+    except Exception as e:
+        print(f"!! UNEXPECTED ERROR in /check_sdi: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/images/<path:filename>")
 def serve_image(filename):
     return send_from_directory(IMG_DIR, filename)
